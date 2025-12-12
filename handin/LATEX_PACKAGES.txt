@@ -1,0 +1,16 @@
+LaTeX packages required for a3_handin.tex:
+
+Core packages (usually pre-installed):
+- inputenc
+- geometry
+- graphicx
+- hyperref
+- amsmath
+
+Additional packages (may need installation):
+- listings
+- xcolor
+- grfext
+
+To install missing packages:
+tlmgr install listings xcolor grfext

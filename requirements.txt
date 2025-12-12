@@ -1,0 +1,38 @@
+# System Requirements for Assignment 3
+
+## Build Tools
+- gcc (GNU Compiler Collection) - C compiler with C99 support
+- make - Build automation tool
+
+## C Standard Libraries (included with gcc)
+- math.h - Mathematical functions (linked with -lm flag)
+- stdlib.h - Standard library functions
+- stdio.h - Standard I/O functions
+- assert.h - Assertion macros
+
+## Optional (for visualization and report)
+- SVG viewer (web browser, inkscape, etc.) - To view k-d tree visualizations
+- pdflatex - To compile LaTeX report to PDF
+
+## Installation
+
+### Ubuntu/Debian
+```bash
+sudo apt-get update
+sudo apt-get install build-essential
+```
+
+### macOS
+```bash
+xcode-select --install
+```
+Or install via Homebrew:
+```bash
+brew install gcc make
+```
+
+### Verification
+```bash
+gcc --version
+make --version
+```

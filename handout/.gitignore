@@ -1,0 +1,13 @@
+*.o
+.DS_Store
+*.dSYM
+queries
+points
+indexes
+knn-bruteforce
+knn-kdtree
+knn-genpoints
+knn-svg
+knn
+sort-example
+*.svg

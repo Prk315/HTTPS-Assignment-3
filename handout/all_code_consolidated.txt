@@ -1,0 +1,870 @@
+================================================================================
+FILE: Makefile
+================================================================================
+CC?=gcc
+CFLAGS?=-Wextra -Wall -pedantic -std=c99 -g
+LDFLAGS?=-lm
+
+all: sort-example knn-bruteforce knn-svg knn-kdtree knn-genpoints
+
+sort-example: sort-example.o sort.o
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+knn-bruteforce: knn-bruteforce.o bruteforce.o io.o util.o
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+knn-kdtree: knn-kdtree.o bruteforce.o io.o util.o kdtree.o sort.o
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+knn-genpoints: knn-genpoints.o io.o
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+knn-svg: knn-svg.o io.o util.o kdtree.o sort.o
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+# A general rule that tells us how to generate an .o file from a .c
+# file.  This cuts down on the boilerplate.
+%.o: %.c
+	$(CC) -c $< $(CFLAGS)
+
+clean:
+	rm -rf sort-example knn-genpoints knn-bruteforce knn-svg knn-kdtree *.o *.dSYM
+	rm -rf points queries indexes points.svg
+
+# Testing rules
+
+NUM_POINTS=10000
+NUM_QUERIES=1000
+K=5
+
+points: knn-genpoints
+	./knn-genpoints $(NUM_POINTS) 2 > points
+
+queries: knn-genpoints
+	./knn-genpoints $(NUM_QUERIES) 2 > queries
+
+indexes: points queries knn-bruteforce
+	./knn-bruteforce points queries $(K) indexes
+
+points.svg: points queries indexes knn-svg
+	./knn-svg points queries indexes > points.svg
+
+
+================================================================================
+FILE: bruteforce.h
+================================================================================
+#ifndef KNN_BRUTEFORCE_H
+#define KNN_BRUTEFORCE_H
+
+// Brute-force k-nearest-neighbours.
+//
+// 'k' is the number of neighbours to find.
+//
+// 'd' is the number of dimensions in the space.
+//
+// 'n' is the number of reference points.
+//
+// 'query' is the query point that we are finding neighbours for.
+//
+// Returns a freshly allocated 'k'-element array that contains the
+// indexes of the nearest neighbours to 'query' in 'points'.  It is
+// the responsibility of the caller to free this array.
+int* knn(int k, int d, int n, const double *points, const double* query);
+
+#endif
+
+
+================================================================================
+FILE: bruteforce.c
+================================================================================
+#include "bruteforce.h"
+#include "util.h"
+#include <stdlib.h>
+#include <assert.h>
+
+int* knn(int k, int d, int n, const double *points, const double* query) {
+  assert(0);
+}
+
+
+
+================================================================================
+FILE: io.h
+================================================================================
+#ifndef KNN_IO_H
+#define KNN_IO_H
+
+#include <stdio.h>
+#include <stdint.h>
+
+// Read points from a points data file.  Returns a pointer to the
+// data, and writes the size to the n_out and d_out arguments.
+// Returns a NULL pointer if reading fails.  It is the caller's
+// responsibility to eventually free the returned pointer with free().
+double* read_points(FILE *f, int *n_out, int* d_out);
+
+// Read indexes from an indexes data file.  Returns a pointer to the
+// data, and writes the size to the n_out and k_out arguments.
+// Returns a NULL pointer if reading fails.  It is the caller's
+// responsibility to eventually free the returned pointer with free().
+int* read_indexes(FILE *f, int *n_out, int* k_out);
+
+// Write a points data file based on the given data.  Returns 1 on
+// error and 0 on success.
+int write_points(FILE *f, int32_t n, int32_t d, double *data);
+
+// Write an indexes data file based on the given data.  Returns 1 on
+// error and 0 on success.
+int write_indexes(FILE *f, int32_t n, int32_t k, int *data);
+
+#endif
+
+
+================================================================================
+FILE: io.c
+================================================================================
+#include "io.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <assert.h>
+
+double* read_points(FILE *f, int* n_out, int *d_out) {
+  assert(0);
+}
+
+int* read_indexes(FILE *f, int *n_out, int *k_out) {
+  assert(0);
+}
+
+int write_points(FILE *f, int32_t n, int32_t d, double *data) {
+  assert(0);
+}
+
+int write_indexes(FILE *f, int32_t n, int32_t k, int *data) {
+  assert(0);
+}
+
+
+================================================================================
+FILE: kdtree.h
+================================================================================
+#ifndef KDTREE_H
+#define KDTREE_H
+
+#include <stdio.h>
+
+// An opaque struct representing a k-d tree.
+struct kdtree;
+
+// Construct a new k-d tree corresponding to points in a space.
+//
+// 'd' is the number of dimensions in the space.
+//
+// 'n' is the number of reference points in the space.
+//
+// 'points' is an 'n'-element array of 'd'-dimensional reference
+// points.
+struct kdtree *kdtree_create(int d, int n, const double *points);
+
+// Free a k-d tree.  The pointer must not be used again.
+void kdtree_free(struct kdtree* tree);
+
+// k-d tree-accelerated k-nearest-neighbours.
+//
+// 'tree' is a k-d tree produced by kdtree_create().
+//
+// 'k' is the number of neighbours to find.
+//
+// 'query' is the query point that we are finding neighbours for.  It
+// is assumed to have the same number of dimensions as the space that
+// was used to construct 'tree'.
+//
+// Returns a freshly allocated 'k'-element array that contains the
+// indexes of the nearest neighbours to 'query' in 'points'.  It is
+// the responsibility of the caller to free this array.
+int* kdtree_knn(const struct kdtree *tree, int k, const double* query);
+
+// Print an SVG representation of the tree to the given file, scaling
+// up point coordinates as indicated.
+void kdtree_svg(double scale, FILE* f, const struct kdtree *tree);
+
+#endif
+
+
+================================================================================
+FILE: kdtree.c
+================================================================================
+#include "kdtree.h"
+#include "sort.h"
+#include "util.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <assert.h>
+#include <math.h>
+
+struct node {
+  // Index of this node's point in the corresponding 'indexes' array.
+  int point_index;
+
+  // Axis along which this node has been splot.
+  int axis;
+
+  // The left child of the node; NULL if none.
+  struct node *left;
+
+  // The right child of the node; NULL if none.
+  struct node *right;
+};
+
+struct kdtree {
+  int d;
+  const double *points;
+  struct node* root;
+};
+
+struct node* kdtree_create_node(int d, const double *points,
+                                int depth, int n, int *indexes) {
+  assert(0);
+}
+
+struct kdtree *kdtree_create(int d, int n, const double *points) {
+  struct kdtree *tree = malloc(sizeof(struct kdtree));
+  tree->d = d;
+  tree->points = points;
+
+  int *indexes = malloc(sizeof(int) * n);
+
+  for (int i = 0; i < n; i++) {
+    indexes[i] = i;
+  }
+
+  tree->root = kdtree_create_node(d, points, 0, n, indexes);
+
+  free(indexes);
+
+  return tree;
+}
+
+void kdtree_free_node(struct node *node) {
+  assert(0);
+}
+
+void kdtree_free(struct kdtree *tree) {
+  kdtree_free_node(tree->root);
+  free(tree);
+}
+
+void kdtree_knn_node(const struct kdtree *tree, int k, const double* query,
+                     int *closest, double *radius,
+                     const struct node *node) {
+  assert(0);
+}
+
+int* kdtree_knn(const struct kdtree *tree, int k, const double* query) {
+  int* closest = malloc(k * sizeof(int));
+  double radius = INFINITY;
+
+  for (int i = 0; i < k; i++) {
+    closest[i] = -1;
+  }
+
+  kdtree_knn_node(tree, k, query, closest, &radius, tree->root);
+
+  return closest;
+}
+
+void kdtree_svg_node(double scale, FILE *f, const struct kdtree *tree,
+                     double x1, double y1, double x2, double y2,
+                     const struct node *node) {
+  if (node == NULL) {
+    return;
+  }
+
+  double coord = tree->points[node->point_index*2+node->axis];
+  if (node->axis == 0) {
+    // Split the X axis, so vertical line.
+    fprintf(f, "<line x1=\"%f\" y1=\"%f\" x2=\"%f\" y2=\"%f\" stroke-width=\"1\" stroke=\"black\" />\n",
+            coord*scale, y1*scale, coord*scale, y2*scale);
+    kdtree_svg_node(scale, f, tree,
+                    x1, y1, coord, y2,
+                    node->left);
+    kdtree_svg_node(scale, f, tree,
+                    coord, y1, x2, y2,
+                    node->right);
+  } else {
+    // Split the Y axis, so horizontal line.
+    fprintf(f, "<line x1=\"%f\" y1=\"%f\" x2=\"%f\" y2=\"%f\" stroke-width=\"1\" stroke=\"black\" />\n",
+            x1*scale, coord*scale, x2*scale, coord*scale);
+    kdtree_svg_node(scale, f, tree,
+                    x1, y1, x2, coord,
+                    node->left);
+    kdtree_svg_node(scale, f, tree,
+                    x1, coord, x2, y2,
+                    node->right);
+  }
+}
+
+void kdtree_svg(double scale, FILE* f, const struct kdtree *tree) {
+  assert(tree->d == 2);
+  kdtree_svg_node(scale, f, tree, 0, 0, 1, 1, tree->root);
+}
+
+
+================================================================================
+FILE: sort.h
+================================================================================
+#ifndef SORT_H
+#define SORT_H
+
+#include <stddef.h>
+
+// We need a sorting function that can also accept some auxiliary
+// information - sadly, qsort_r is incompatibly defined on macOS and
+// Linux.
+
+void hpps_quicksort(void *base, size_t nmemb, size_t size,
+                    int (*compar)(const void *, const void *, void *),
+                    void *arg);
+
+#endif
+
+
+================================================================================
+FILE: sort.c
+================================================================================
+#include "sort.h"
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+static void* idx(void* base, size_t size, int i) {
+  return ((unsigned char*)base)+i*size;
+}
+
+int partition(void *a, size_t size,
+              int (*compar)(const void *, const void *, void *),
+              void *arg,
+              int p, int r) {
+  void *tmp = malloc(size);
+  void *pivot = malloc(size);
+
+  // Would be better to pick pivot randomly.
+  memcpy(pivot, idx(a, size, p), size);
+
+  int i=p-1;
+  int j=r;
+
+  while (1) {
+    do { j--; } while (compar(pivot, idx(a, size, j), arg) < 0);
+    do { i++; } while (compar(idx(a, size, i), pivot, arg) < 0);
+    if (i < j) {
+      memcpy(tmp, idx(a, size, i), size);
+      memcpy(idx(a, size, i), idx(a, size, j), size);
+      memcpy(idx(a, size, j), tmp, size);
+    } else {
+      free(tmp);
+      free(pivot);
+      return j+1;
+    }
+  }
+}
+
+static void quicksort(int* a, size_t size,
+                      int (*compar)(const void *, const void *, void *),
+                      void *arg,
+                      int start, int end) {
+  if (end-start<2) {
+    return;
+  }
+
+  int q = partition(a, size, compar, arg, start, end);
+  quicksort(a, size, compar, arg, start, q);
+  quicksort(a, size, compar, arg, q, end);
+}
+
+void hpps_quicksort(void *base, size_t nmemb, size_t size,
+                    int (*compar)(const void *, const void *, void *),
+                    void *arg) {
+  quicksort(base, size, compar, arg, 0, nmemb);
+}
+
+
+
+================================================================================
+FILE: util.h
+================================================================================
+#ifndef KNN_UTIL_H
+#define KNN_UTIL_H
+
+// Compute the Euclidean distance between two d-dimensional points 'x'
+// and 'y'.  Usual formula:
+//
+//
+// √( ∑ (x[i]-y[i])² )
+//
+double distance(int d, const double *x, const double *y);
+
+// Maintain a sorted sequence of indexes to the 'k' closest point seen
+// so far.
+//
+// 'd' is the number of dimensions in the space.
+//
+// 'points' is the array of all reference points.
+//
+// 'closest' is an array of length 'k' that contains valid indexes
+// into 'points', or -1 to indicate the absence of an element.
+//
+// 'query' is the query point from which distances are computed.
+//
+// 'candidate' is the index of a point in 'points'.
+//
+// Updates 'closest' to contain 'candidate' if 'candidate' is closer
+// to 'query' than any point in 'closest'.
+//
+// Returns 1 if 'closest' was updated, and otherwise '0'.
+int insert_if_closer(int k, int d,
+                     const double *points, int *closest, const double *query,
+                     int candidate);
+
+#endif
+
+
+================================================================================
+FILE: util.c
+================================================================================
+#include "util.h"
+#include <math.h>
+#include <stdio.h>
+#include <assert.h>
+
+double distance(int d, const double *x, const double *y) {
+  assert(0);
+}
+
+int insert_if_closer(int k, int d,
+                     const double *points, int *closest, const double *query,
+                     int candidate) {
+  assert(0);
+}
+
+
+================================================================================
+FILE: knn-bruteforce.c
+================================================================================
+#include "io.h"
+#include "bruteforce.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <stdint.h>
+#include <string.h>
+
+int main(int argc, char** argv) {
+  if (argc != 4 && argc != 5) {
+    fprintf(stderr, "Usage: %s <points> <queries> <k> [output-file]\n", argv[0]);
+    exit(1);
+  }
+
+  FILE * points_f = fopen(argv[1], "r");
+  assert(points_f != NULL);
+  FILE * queries_f = fopen(argv[2], "r");
+  assert(queries_f != NULL);
+  int32_t k = atoi(argv[3]);
+
+  int n_points = -1;
+  int d;
+  double* points = read_points(points_f, &n_points, &d);
+  if (points == NULL) {
+    fprintf(stderr, "Failed reading data from %s\n", argv[1]);
+    exit(1);
+  }
+  fclose(points_f);
+
+  int n_queries = -1;
+  int d_queries;
+  double* queries = read_points(queries_f, &n_queries, &d_queries);
+  if (queries == NULL) {
+    fprintf(stderr, "Failed reading data from %s\n", argv[2]);
+    exit(1);
+  }
+  fclose(queries_f);
+
+  if (d != d_queries) {
+    fprintf(stderr, "Reference points have %d dimensions, but query points have %d dimensions\n",
+            (int)d, (int)d_queries);
+    exit(1);
+  }
+
+  printf("Dimensions: %d\n", (int)d);
+  printf("Points: %d\n", n_points);
+  printf("Queries: %d\n", n_queries);
+  printf("Finding indexes of %d nearest neighbours\n", k);
+
+  int* indexes = malloc(n_queries*k*sizeof(int));
+
+  for (int q = 0; q < n_queries; q++) {
+    int *closest = knn(k, d, n_points, points, &queries[q*d]);
+
+    printf("Query %d: ", q);
+    for (int i = 0; i < k; i++) {
+      printf("%d ", closest[i]);
+    }
+    printf("\n");
+
+    memcpy(&indexes[q*k], closest, k*sizeof(int));
+    free(closest);
+  }
+
+  if (argc == 5) {
+    FILE *output_f = fopen(argv[4], "w");
+    assert(output_f != NULL);
+
+    int err = write_indexes(output_f, n_queries, k, indexes);
+    assert(err == 0);
+
+    fclose(output_f);
+  }
+
+  free(indexes);
+  free(points);
+  free(queries);
+
+  return 0;
+}
+
+
+================================================================================
+FILE: knn-genpoints.c
+================================================================================
+#include "io.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <stdint.h>
+#include <time.h>
+
+int main(int argc, char** argv) {
+  if (argc != 3) {
+    fprintf(stderr, "Usage: %s <n> <d>\n", argv[0]);
+    exit(1);
+  }
+
+  int32_t n = atoi(argv[1]);
+  int32_t d = atoi(argv[2]);
+
+  srand(time(NULL) ^ d ^ n);
+
+  double *data = malloc(n*d*sizeof(double));
+
+  for (int i = 0; i < n; i++) {
+    for (int j = 0; j < d; j++) {
+      double x = ((double)rand())/RAND_MAX;
+      data[i*d+j] = x;
+    }
+  }
+
+  int err = write_points(stdout, n, d, data);
+  assert(err == 0);
+
+  free(data);
+}
+
+
+================================================================================
+FILE: knn-kdtree.c
+================================================================================
+#include "io.h"
+#include "kdtree.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <stdint.h>
+#include <string.h>
+
+int main(int argc, char** argv) {
+  if (argc != 4 && argc != 5) {
+    fprintf(stderr, "Usage: %s <points> <queries> <k> [output-file]\n", argv[0]);
+    exit(1);
+  }
+
+  FILE * points_f = fopen(argv[1], "r");
+  assert(points_f != NULL);
+  FILE * queries_f = fopen(argv[2], "r");
+  assert(queries_f != NULL);
+  int32_t k = atoi(argv[3]);
+
+  int n_points = -1;
+  int d;
+  double* points = read_points(points_f, &n_points, &d);
+  if (points == NULL) {
+    fprintf(stderr, "Failed reading data from %s\n", argv[1]);
+    exit(1);
+  }
+  fclose(points_f);
+
+  int n_queries = -1;
+  int d_queries;
+  double* queries = read_points(queries_f, &n_queries, &d_queries);
+  if (queries == NULL) {
+    fprintf(stderr, "Failed reading data from %s\n", argv[2]);
+    exit(1);
+  }
+  fclose(queries_f);
+
+  if (d != d_queries) {
+    fprintf(stderr, "Reference points have dimensionality %d, but query points have dimensionality %d\n",
+            (int)d, (int)d_queries);
+    exit(1);
+  }
+
+  printf("Dimensions: %d\n", (int)d);
+  printf("Points: %d\n", n_points);
+  printf("Queries: %d\n", n_queries);
+  printf("Finding indexes of %d nearest neighbours\n", k);
+
+  struct kdtree *kdtree = kdtree_create(d, n_points, points);
+  int* indexes = malloc(n_queries*k*sizeof(int));
+
+  for (int q = 0; q < n_queries; q++) {
+    int *closest = kdtree_knn(kdtree, k, &queries[q*d]);
+
+    printf("Query %d: ", q);
+    for (int i = 0; i < k; i++) {
+      printf("%d ", closest[i]);
+    }
+    printf("\n");
+
+    memcpy(&indexes[q*k], closest, k*sizeof(int));
+    free(closest);
+  }
+
+  if (argc == 5) {
+    FILE *output_f = fopen(argv[4], "w");
+    assert(output_f != NULL);
+
+    int err = write_indexes(output_f, n_queries, k, indexes);
+    assert(err == 0);
+
+    fclose(output_f);
+  }
+
+  kdtree_free(kdtree);
+
+  free(indexes);
+  free(points);
+  free(queries);
+
+  return 0;
+}
+
+
+================================================================================
+FILE: knn-svg.c
+================================================================================
+#include "io.h"
+#include "util.h"
+#include "kdtree.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <time.h>
+#include <stdint.h>
+
+void draw_points(int size, int n_points, double* points) {
+  // Draw a small circle for each reference points.
+  double point_radius = 2;
+  const char *point_colour = "black";
+  for (int i = 0; i < n_points; i++) {
+    // Assuming points are in (0,1)
+    double x = points[i*2] * size;
+    double y = points[i*2+1] * size;
+    printf("<circle cx=\"%f\" cy=\"%f\" r=\"%f\" fill=\"%s\" />\n", x, y, point_radius, point_colour);
+  }
+}
+
+void draw_queries(int size, int d, double *points,
+                  const char *queries_fname, const char *indexes_fname) {
+  FILE *queries_f = fopen(queries_fname, "r");
+  assert(queries_f != NULL);
+
+  int n_queries;
+  int d_queries;
+  double *queries = read_points(queries_f, &n_queries, &d_queries);
+
+  if (d != d_queries) {
+    fprintf(stderr, "Reference points have dimensionality %d, but query points have dimensionality %d\n",
+            (int)d, (int)d_queries);
+    exit(1);
+  }
+
+  if (queries == NULL) {
+    fprintf(stderr, "Failed reading data from %s\n",
+            queries_fname);
+    exit(1);
+  }
+  fclose(queries_f);
+
+  FILE *indexes_f = fopen(indexes_fname, "r");
+  assert(indexes_f != NULL);
+
+  int n_indexes;
+  int k;
+  int *indexes = read_indexes(indexes_f, &n_indexes, &k);
+  if (indexes == NULL) {
+    fprintf(stderr, "Failed reading data from %s\n",
+            indexes_fname);
+    exit(1);
+  }
+  fclose(indexes_f);
+
+  if (n_queries != n_indexes) {
+    fprintf(stderr, "Found %d queries, but %d indexes\n",
+            n_queries, n_indexes);
+    exit(1);
+  }
+
+  double query_radius = 4;
+  for (int q = 0; q < n_queries; q++) {
+    double x = queries[q*d] * size;
+    double y = queries[q*d+1] * size;
+
+    // Draw each query in a randomly generated colour.
+    int r = rand() % 128;
+    int g = rand() % 128;
+    int b = rand() % 128;
+
+    printf("<circle cx=\"%f\" cy=\"%f\" r=\"%f\" fill=\"#%.2x%.2x%.2x\" />\n",
+           x, y, query_radius, r, g, b);
+
+    // Find the distance to the most distant neighbour.
+    double most_distant = 0;
+    for (int j = 0; j < k; j++) {
+      double j_dist = distance(d,
+                               &queries[q*d],
+                               &points[indexes[q*k+j]*d]);
+      if (j_dist > most_distant) {
+        most_distant = j_dist;
+      }
+    }
+
+    // Then draw a non-filled circle with that radius around the
+    // query point.
+    double circle_thickness = 1;
+    printf("<circle cx=\"%f\" cy=\"%f\" r=\"%f\" stroke=\"#%.2x%.2x%.2x\" stroke-width=\"%f\" fill-opacity=\"0\" />\n",
+           x, y, most_distant*size, r, g, b, circle_thickness);
+  }
+
+  free(queries);
+  free(indexes);
+}
+
+int main(int argc, char** argv) {
+  if (argc != 2 && argc != 4) {
+    fprintf(stderr, "Usage: %s <points> [<queries> <indexes>]\n", argv[0]);
+    exit(1);
+  }
+
+  srand(time(NULL));
+
+  FILE *points_f = fopen(argv[1], "r");
+  assert(points_f != NULL);
+
+  int n_points;
+  int d;
+  double *points = read_points(points_f, &n_points, &d);
+  if (points == NULL) {
+    fprintf(stderr, "Failed reading data from %s\n", argv[1]);
+    exit(1);
+  }
+  fclose(points_f);
+
+  if (d != 2) {
+    fprintf(stderr, "Can only visualise 2-dimensional spaces, and input is %d-dimensional\n", d);
+    exit(1);
+  }
+
+  // We produce a square image with this edge length.
+  int size = 1000;
+
+  // SVG header.
+  printf("<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">\n",
+         size, size, size, size);
+  // Box around the canvas.
+  printf("<rect x=\"0\" y=\"0\" width=\"%d\" height=\"%d\" fill= \"#ffffff\" stroke=\"black\" stroke-width=\"1\" />\n",
+         size, size);
+
+  draw_points(size, n_points, points);
+
+  // Maybe draw queries and circles indicating the distance of their
+  // k'th neighbour.
+  if (argc == 4) {
+    draw_queries(size, d, points, argv[2], argv[3]);
+  }
+
+  // Maybe compute KD-tree and draw it.
+  int draw_kdtree = 0;
+  if (draw_kdtree) {
+    struct kdtree *kdtree = kdtree_create(d, n_points, points);
+    kdtree_svg(size, stdout, kdtree);
+    kdtree_free(kdtree);
+  }
+
+  printf("</svg>\n");
+
+  free(points);
+}
+
+
+================================================================================
+FILE: sort-example.c
+================================================================================
+// This program is an example of how to use hpps_quicksort() from
+// sort.h.
+//
+// We sort the strings containing in the argv array provided to
+// main().  However, instead of creating an sorting the strings
+// directly, we sort an array of *indexes*, where each index
+// identifies a string in argv.  This shows how we can look up
+// "auxiliary" information inside the sorting function.
+//
+// Usage:
+//
+// $ ./sort-example troels hpps diku
+// ./sort-example
+// diku
+// hpps
+// troels
+
+#include <string.h>
+#include <stdio.h>
+#include "sort.h"
+
+int cmp_strings(const void* x, const void* y, void* aux) {
+  // Cast x to int pointer and dereference.
+  int i = *(const int*)x;
+  // Cast y to int pointer and dereference.
+  int j = *(const int*)y;
+  // Cast aux to char* pointer.
+  char** argv = aux;
+  // Treat i and j as indexes into argv, fetch the strings, and use
+  // strcmp to compare them.
+  return strcmp(argv[i],argv[j]);
+}
+
+int main(int argc, char** argv) {
+  int indexes[argc];
+
+  for (int i = 0; i < argc; i++) {
+    indexes[i] = i;
+  }
+
+  hpps_quicksort(indexes, argc, sizeof(int), cmp_strings, argv);
+
+  for (int i = 0; i < argc; i++) {
+    puts(argv[indexes[i]]);
+  }
+}
+
+

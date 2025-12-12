@@ -148,7 +148,29 @@ static void recompute_radius(const struct kdtree *tree,
 void kdtree_knn_node(const struct kdtree *tree, int k, const double* query,
                      int *closest, double *radius,
                      const struct node *node) {
-  assert(0);
+  if (node == NULL) {
+    return;
+  }
+
+  // Check if this node's point should be added to closest
+  int updated = insert_if_closer(k, tree->d, tree->points, closest, query, node->point_index);
+
+  if (updated) {
+    recompute_radius(tree, k, query, closest, radius);
+  }
+
+  // Get the coordinate of this node's point along the split axis
+  double node_coord = tree->points[node->point_index * tree->d + node->axis];
+  double diff = node_coord - query[node->axis];
+
+  // Recurse into children based on the split
+  if (diff >= 0 || *radius > fabs(diff)) {
+    kdtree_knn_node(tree, k, query, closest, radius, node->left);
+  }
+
+  if (diff <= 0 || *radius > fabs(diff)) {
+    kdtree_knn_node(tree, k, query, closest, radius, node->right);
+  }
 }
 
 int* kdtree_knn(const struct kdtree *tree, int k, const double* query) {

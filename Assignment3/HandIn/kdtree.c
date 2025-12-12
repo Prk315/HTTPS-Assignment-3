@@ -26,9 +26,62 @@ struct kdtree {
   struct node* root;
 };
 
+// Auxiliary data structure for the comparator
+struct comparator_data {
+  const double *points;
+  int d;
+  int axis;
+};
+
+// Comparator function for sorting indexes by their coordinate values
+static int compare_indexes(const void *a, const void *b, void *arg) {
+  const int *index_a = (const int *)a;
+  const int *index_b = (const int *)b;
+  struct comparator_data *data = (struct comparator_data *)arg;
+
+  double val_a = data->points[(*index_a) * data->d + data->axis];
+  double val_b = data->points[(*index_b) * data->d + data->axis];
+
+  if (val_a < val_b) {
+    return -1;
+  } else if (val_a > val_b) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
 struct node* kdtree_create_node(int d, const double *points,
                                 int depth, int n, int *indexes) {
-  assert(0);
+  if (n == 0) {
+    return NULL;
+  }
+
+  // Choose axis based on depth
+  int axis = depth % d;
+
+  // Set up comparator data
+  struct comparator_data comp_data;
+  comp_data.points = points;
+  comp_data.d = d;
+  comp_data.axis = axis;
+
+  // Sort the indexes by the points along the chosen axis
+  hpps_quicksort(indexes, n, sizeof(int), compare_indexes, &comp_data);
+
+  // Pick the median
+  int median = n / 2;
+
+  // Create the node
+  struct node *node = malloc(sizeof(struct node));
+  node->point_index = indexes[median];
+  node->axis = axis;
+
+  // Recursively build left and right subtrees
+  node->left = kdtree_create_node(d, points, depth + 1, median, indexes);
+  node->right = kdtree_create_node(d, points, depth + 1, n - median - 1, indexes + median + 1);
+
+  return node;
 }
 
 struct kdtree *kdtree_create(int d, int n, const double *points) {
@@ -50,12 +103,46 @@ struct kdtree *kdtree_create(int d, int n, const double *points) {
 }
 
 void kdtree_free_node(struct node *node) {
-  assert(0);
+  if (node == NULL) {
+    return;
+  }
+  kdtree_free_node(node->left);
+  kdtree_free_node(node->right);
+  free(node);
 }
 
 void kdtree_free(struct kdtree *tree) {
   kdtree_free_node(tree->root);
   free(tree);
+}
+
+static void recompute_radius(const struct kdtree *tree,
+                             int k,
+                             const double *query,
+                             const int *closest,
+                             double *radius) {
+  int valid = 0;
+  double maxd = 0.0;
+
+  for (int i = 0; i < k; i++) {
+    int idx = closest[i];
+    if (idx == -1) {
+      continue;
+    }
+    double dist = distance(tree->d,
+                           &tree->points[idx * tree->d],
+                           query);
+    if (dist > maxd) {
+      maxd = dist;
+    }
+    valid++;
+  }
+
+  if (valid < k) {
+    *radius = INFINITY;
+  } else {
+    *radius = maxd;
+  }
 }
 
 void kdtree_knn_node(const struct kdtree *tree, int k, const double* query,

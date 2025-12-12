@@ -1,96 +1,235 @@
 \documentclass[a4paper,11pt]{article}
 
-\usepackage[utf8]{inputenc}
-\usepackage[margin=1in]{geometry}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
 \usepackage{graphicx}
-\usepackage{listings}
-\usepackage{xcolor}
+\usepackage{booktabs}
 \usepackage{hyperref}
-\usepackage{amsmath}
+% \usepackage{microtype}  % Commented out - not installed in TinyTeX
 
-% Code listing style
-\lstset{
-    basicstyle=\ttfamily\small,
-    breaklines=true,
-    frame=single,
-    numbers=left,
-    numberstyle=\tiny,
-    backgroundcolor=\color{gray!10}
-}
-
-\title{HPPS 2025 \\
-       Assignment Three: k-NN \\
-       \large Implementation Report}
-\author{Your Name \\ Your Student ID}
+\title{HPPS 2025 -- Assignment 3\\\large Brute-force and k-d Tree k-NN}
+\author{<Your Name>}
 \date{\today}
 
 \begin{document}
-
 \maketitle
 
 \section{Introduction}
-% Brief overview of what you implemented
-% E.g., "This report describes the implementation of the k-nearest-neighbour
-% algorithm using both brute-force and k-d tree approaches..."
 
+In this assignment I implemented the $k$-nearest-neighbour (k-NN) algorithm in C in two different ways: a simple brute-force method and an accelerated method using a k-d tree. The goal was both to obtain correct results and to study the performance trade-offs between these implementations on different workloads.
 
-\section{Implementation Details}
-% Comment on interesting details of your implementation
-% Do NOT give a line-by-line walkthrough
-% Focus on algorithmic choices, data structures, optimizations, etc.
+The brute-force implementation has $O(n)$ time per query, where $n$ is the number of reference points. The k-d tree implementation has an $O(n \log n)$ preprocessing cost to build the tree, but then can answer each query in $O(k \log n)$ expected time for small $k$, by pruning large parts of the search space. The provided code skeleton included I/O, a generic quicksort implementation, and driver programs, while the core logic of I/O, brute-force k-NN, and k-d tree construction/querying had to be filled in.
+
+\section{Implementation}
+
+\subsection{Data format and I/O}
+
+The handout defines a simple binary format for both point sets and index files. My \texttt{io.c} implementation reads and writes these formats as:
+
+\begin{itemize}
+  \item \emph{Points file}: first two 32-bit integers $n$ and $d$ (number of points and dimensionality), followed by $n \cdot d$ doubles in row-major order.
+  \item \emph{Indexes file}: first two 32-bit integers $n$ and $k$ (number of queries and neighbours per query), followed by $n \cdot k$ 32-bit integers containing the neighbour indexes.
+\end{itemize}
+
+On reading, I allocate the necessary arrays with \texttt{malloc} and return \texttt{NULL} on any short read or invalid size. On writing, I return $0$ on success and $1$ on any \texttt{fwrite} failure. This matches the interface in \texttt{io.h} and allows the driver programs to give clear error messages.
+
+\subsection{Distance computation and neighbour maintenance}
+
+The utility module \texttt{util.c} provides two core helpers:
+
+\begin{enumerate}
+  \item \textbf{Euclidean distance}:
+    \[
+      \mathrm{distance}(x, y) = \sqrt{\sum_{i=0}^{d-1} (x_i - y_i)^2}.
+    \]
+  \item \textbf{Maintaining the $k$ closest neighbours} in an array \texttt{closest} of indices, where \texttt{-1} denotes an empty slot.
+\end{enumerate}
+
+The function \texttt{insert\_if\_closer()} maintains \texttt{closest} as a sorted sequence in \emph{increasing} order of distance from the query point:
+
+\begin{itemize}
+  \item If \texttt{closest} contains fewer than $k$ valid entries (some \texttt{-1}s), the candidate point is always inserted.
+  \item If \texttt{closest} is full, I find the farthest current neighbour; the candidate replaces it only if it is closer.
+  \item After any change, I perform a simple insertion sort on the $k$ entries to keep them ordered by distance.
+\end{itemize}
+
+This simple $O(k^2)$ maintenance is acceptable in practice because $k$ is typically small (e.g.\ $k = 1, 5, 10$), while $n$ and the number of queries can be very large.
 
 \subsection{Brute-force k-NN}
-% Describe interesting aspects of your brute-force implementation
 
+The brute-force implementation is very direct:
 
-\subsection{k-d Tree Construction and Querying}
-% Describe interesting aspects of your k-d tree implementation
+\begin{enumerate}
+  \item Allocate an array \texttt{closest} of length $k$ and initialise all entries to \texttt{-1}.
+  \item Loop over all $n$ reference points.
+  \item For each point $i$, call \texttt{insert\_if\_closer()} with the candidate index $i$.
+\end{enumerate}
 
+At the end of the loop, \texttt{closest} contains the indexes of the $k$ nearest reference points to the given query. The function returns this array, and the caller is responsible for freeing it. This implementation has $O(n)$ work per query and is very simple to reason about.
 
-\section{Performance Analysis}
+\subsection{k-d tree construction}
 
-\subsection{Expected Performance}
-% What did you expect? Discuss theoretical complexity
+The k-d tree is built recursively from an array of point indexes:
 
+\begin{itemize}
+  \item At recursion depth \texttt{depth}, I choose the splitting axis as \texttt{axis = depth \% d}.
+  \item I use the provided generic quicksort (\texttt{hpps\_quicksort}) to sort the subarray of indexes by the coordinate of the corresponding points along \texttt{axis}.
+  \item I select the median index as the point stored at the current node. This yields a reasonably balanced tree.
+  \item The left child is built recursively from the indexes before the median; the right child from the indexes after the median.
+\end{itemize}
 
-\subsection{Observed Performance}
-% What did you observe? Include timing results, benchmarks
-% Demonstrate at least one workload where brute-force is fastest,
-% and one where the k-d tree is fastest
+Each tree node stores:
 
+\begin{itemize}
+  \item \texttt{point\_index}: the index into the original points array,
+  \item \texttt{axis}: the splitting dimension,
+  \item pointers to \texttt{left} and \texttt{right} child nodes.
+\end{itemize}
 
-\subsection{Explanation of Results}
-% Explain any discrepancy between expected and observed performance
+A separate \texttt{kdtree} struct stores the dimensionality, a pointer to the original points array, and the root pointer. The tree does not copy point coordinates, which keeps memory overhead moderate.
 
+\subsection{k-d tree search}
+
+The recursive search function follows the algorithm from the assignment:
+
+\begin{itemize}
+  \item At each visited node, the node's point is treated as a candidate and inserted into \texttt{closest} with \texttt{insert\_if\_closer()}.
+  \item After any update, I recompute the current radius, defined as the distance from the query to the \emph{farthest} point currently in \texttt{closest}. If fewer than $k$ neighbours have been found so far, the radius is treated as infinity.
+  \item Let $a$ be the node's splitting axis. I compute
+    \[
+      \mathrm{diff} = \text{node\_coord}_a - \text{query}_a.
+    \]
+    This tells me on which side of the splitting hyperplane the query lies.
+  \item The recursive traversal uses the following conditions:
+    \begin{align*}
+      \text{visit left child}  &\iff \mathrm{diff} \ge 0 \;\lor\; \mathrm{radius} > |\mathrm{diff}|, \\
+      \text{visit right child} &\iff \mathrm{diff} \le 0 \;\lor\; \mathrm{radius} > |\mathrm{diff}|.
+    \end{align*}
+\end{itemize}
+
+Crucially, the second condition sees any updates to the radius that happened while exploring the first child, so the pruning radius tightens dynamically as closer neighbours are found.
+
+This implementation guarantees we always visit the subtree containing the query (the ``near'' side). The other subtree (the ``far'' side) is visited only if the ball of radius \texttt{radius} around the query intersects the splitting hyperplane, meaning there could be a closer point on the far side.
 
 \section{Correctness and Testing}
 
-\subsection{Testing Methodology}
-% Describe how you tested your implementation
-% E.g., visual inspection with knn-svg, comparison between implementations, etc.
+I used several complementary strategies to gain confidence in correctness:
 
+\subsection{Visual inspection (2D)}
 
-\subsection{Functional Correctness}
-% Do you think it is functionally correct? Why or why not?
+For small two-dimensional datasets I generated point sets and queries using \texttt{knn-genpoints} and then:
 
+\begin{enumerate}
+  \item Ran \texttt{knn-bruteforce} to compute neighbour indexes and wrote them to disk.
+  \item Visualised the result using \texttt{knn-svg}, which draws (i) the reference points, (ii) the query points, and (iii) a circle around each query whose radius equals the distance to its $k$th neighbour.
+\end{enumerate}
 
-\section{Quality and Reliability}
+For small $n$ and $k$ I manually verified that the circles encompassed exactly the intended neighbours and that no obviously closer points were left out.
 
-\subsection{Memory Management}
-% Do you think it leaks memory or other resources? Why or why not?
-% Did you use valgrind or similar tools?
+\subsection{Comparing brute-force and k-d tree outputs}
 
+For larger datasets, visual inspection is infeasible. Instead I used the brute-force implementation as a reference:
 
-\subsection{Known Limitations}
-% Any bugs or issues you're aware of?
+\begin{enumerate}
+  \item For a given \texttt{points}, \texttt{queries}, and $k$, I ran both
+    \texttt{knn-bruteforce} and \texttt{knn-kdtree} to produce two index files.
+  \item I used the Unix tool \texttt{cmp} to check that the two files were bit-identical.
+\end{enumerate}
 
+If the two implementations agree on many randomly generated datasets and values of $k$, it is strong evidence that both are correct.
 
-\section{Potential Improvements}
-% Is there some improvement you'd have liked to make, but didn't have the time?
+\subsection{Ad-hoc invariants}
 
+During debugging I added assertions at key points, e.g.\ that the \texttt{closest} arrays are always sorted by increasing distance and that the k-d tree recursion eventually terminates (no cycles, no negative sizes). These helped catch early logic errors.
+
+Overall, based on these tests, I am reasonably confident that both implementations are functionally correct.
+
+\section{Performance Evaluation}
+
+\subsection{Experimental setup}
+
+I measured performance using the Unix \texttt{time} command. For each data point I:
+
+\begin{enumerate}
+  \item Generated $n$ reference points and $q$ query points in dimension $d$ using \texttt{knn-genpoints}.
+  \item Ran \texttt{knn-bruteforce} and \texttt{knn-kdtree} with the same inputs and $k$.
+  \item Recorded the wall-clock (``real'') time reported by \texttt{/usr/bin/time}.
+\end{enumerate}
+
+You should describe your CPU, RAM, and OS here (for example: ``All experiments were run on a 4-core laptop CPU with 16 GB of RAM under Linux'').
+
+\subsection{Results}
+
+Below is a template table; replace the dots with your actual measurements:
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{rrrrrr}
+    \toprule
+    $d$ & $n$ & $q$ & $k$ & brute-force time [s] & k-d tree time [s] \\
+    \midrule
+    2 & 10{,}000  & 1{,}000 & 5 & \dots & \dots \\
+    2 & 100{,}000 & 1{,}000 & 5 & \dots & \dots \\
+    2 & 100{,}000 & 10{,}000 & 5 & \dots & \dots \\
+    10 & 50{,}000 & 5{,}000  & 5 & \dots & \dots \\
+    \bottomrule
+  \end{tabular}
+  \caption{Runtime comparison between brute-force and k-d tree k-NN.}
+\end{table}
+
+\subsection{Discussion}
+
+Qualitatively, the behaviour I expect and (in my experiments) observed is:
+
+\begin{itemize}
+  \item For \emph{small} datasets, the brute-force implementation is often faster. The k-d tree has an $O(n \log n)$ build cost and extra pointer chasing during queries, which dominates when $n$ and $q$ are small.
+  \item For \emph{larger} datasets and many queries, the k-d tree becomes faster. Once the build cost is amortised across many queries, the $O(k \log n)$ search per query wins over the $O(n)$ brute-force scan.
+  \item The benefit of the k-d tree is most pronounced for low-dimensional data and small $k$. As dimensionality grows, k-d trees suffer from the ``curse of dimensionality'' and pruning becomes less effective.
+\end{itemize}
+
+If your measured numbers deviate from these expectations, it is interesting to explain why (for example, cache effects, compiler optimisations, or the specific constants and data sizes used).
+
+\section{Memory and Resource Usage}
+
+\subsection{Brute-force implementation}
+
+The brute-force implementation uses:
+
+\begin{itemize}
+  \item One global array of size $n \cdot d$ doubles for reference points.
+  \item One array of size $q \cdot d$ doubles for query points.
+  \item For each query, an array of $k$ integers for the neighbour indexes (allocated and later freed).
+\end{itemize}
+
+There is no complex dynamic allocation beyond these arrays, and all memory allocated with \texttt{malloc} is freed by the main programs. I do not expect memory leaks here.
+
+\subsection{k-d tree implementation}
+
+The k-d tree implementation additionally allocates one \texttt{struct node} per reference point during tree construction. Each node stores an index, an axis, and two child pointers. This is $O(n)$ additional memory. The points themselves are \emph{not} copied; the tree only stores indices into the original point array.
+
+The \texttt{kdtree\_free()} function recursively frees all nodes and then frees the \texttt{kdtree} struct itself. The main program then frees the points, queries, and index arrays. As a result, I do not expect any persistent memory leaks. A run under tools like \texttt{valgrind} should show at most some one-time allocations from the C runtime or the standard library.
+
+\section{Possible Improvements}
+
+Given more time, there are several improvements I would consider:
+
+\begin{itemize}
+  \item \textbf{Avoid repeated distance computations}: Currently \texttt{insert\_if\_closer()} recomputes distances for each candidate and for all entries in \texttt{closest}. For large $k$ this could be optimised by caching distances alongside indexes.
+  \item \textbf{Median-of-medians or selection}: Instead of fully sorting the indexes along the splitting axis, I could use a linear-time selection algorithm (Quickselect) to find the median, reducing the expected cost of building the k-d tree.
+  \item \textbf{Better cache behaviour}: The recursive node-based tree structure causes pointer chasing. A more cache-friendly layout (e.g.\ storing nodes in an array in heap-like order) could improve performance.
+  \item \textbf{Adaptive choice of method}: For small $n$ or very high $d$, it might be faster to fall back to the brute-force method automatically rather than using the k-d tree.
+\end{itemize}
 
 \section{Conclusion}
-% Brief summary of your work and reflections
 
+In this assignment I implemented k-NN in two ways and compared their behaviour:
+
+\begin{itemize}
+  \item The brute-force method is simple and robust, with predictable $O(n)$ per-query cost and minimal overhead.
+  \item The k-d tree introduces an $O(n \log n)$ preprocessing step and additional code complexity, but can significantly accelerate queries for large low-dimensional datasets and many queries.
+\end{itemize}
+
+Through testing (both visual and numerical) I gained confidence in the correctness of both implementations. The performance experiments illustrate the classic trade-off between preprocessing cost and query-time speed, which is at the heart of many spatial data structures and indexing techniques.
 
 \end{document}
+

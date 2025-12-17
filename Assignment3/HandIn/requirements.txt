@@ -1,5 +1,6 @@
 # System Requirements for Assignment 3
 
+
 ## Build Tools
 - gcc (GNU Compiler Collection) - C compiler with C99 support
 - make - Build automation tool
@@ -10,9 +11,7 @@
 - stdio.h - Standard I/O functions
 - assert.h - Assertion macros
 
-## Optional (for visualization and report)
-- SVG viewer (web browser, inkscape, etc.) - To view k-d tree visualizations
-- pdflatex - To compile LaTeX report to PDF
+
 
 ## Installation
 
@@ -35,4 +34,15 @@ brew install gcc make
 ```bash
 gcc --version
 make --version
+```
+
+## Implementation Status
+
+
+### Testing
+```bash
+cd Assignment3/HandIn
+make clean
+make all
+# Should complete with zero warnings
 ```

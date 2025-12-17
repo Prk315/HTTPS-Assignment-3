@@ -11,3 +11,6 @@
 
 # OpenAI review file (not for version control)
 openai_review.txt
+
+# Submission archive
+*.zip
